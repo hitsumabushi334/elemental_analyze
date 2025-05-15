@@ -1,3 +1,4 @@
+from ast import arg
 from logging import root
 from math import e
 import tkinter as tk
@@ -5,6 +6,8 @@ from unittest import result
 import cvxpy as cp
 import numpy as np
 from tkinter import W, X, ttk
+from tkinter import messagebox  # messagebox をインポート
+import threading
 
 
 class elemental_analysis:
@@ -20,13 +23,24 @@ class elemental_analysis:
         self.observation_value_S = tk.DoubleVar(value="")
         self.observation_value_H = tk.DoubleVar(value="")
         self.items_data = [  # (表示テキスト, 初期チェック状態)
-            ("Option 1", False),
-            ("Option 2", True),
-            ("Option 3", False),
-            ("Option 4", False),
-            ("Option 5", True),
+            ("H2O", False),
+            ("DMF", False),
+            ("MeOH", False),
+            ("n-hexane", False),
+            ("n-pentane", False),
+            ("CH2Cl2", False),
+            ("Acetone", False),
+            ("THF", False),
+            ("EtOH", False),
+            ("Et2O", False),
+            ("DMSO", False),
+            ("Toluene", False),
+            ("CH3Cl", False),
+            ("MeCN", False),
+            ("Ethyl acetate", False),
         ]
         self.observation_result = tk.StringVar(value="分析結果")
+        self.checked_solvent_list = []
         # UIの作成
         formula_frame = ttk.Frame(self.root, padding=(10, 15))
         formula_frame.pack(fill=tk.X)
@@ -82,45 +96,46 @@ class elemental_analysis:
         )
         observed_value_frame = ttk.Frame(observed_frame, padding=10, relief=tk.RAISED)
         observed_value_frame.pack(fill=tk.X, pady=5, side=tk.TOP)
-        observed_value_C = ttk.Entry(
+        self.observed_value_C = ttk.Entry(
             observed_value_frame,
             textvariable=self.observation_value_C,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        observed_value_C.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        observed_value_N = ttk.Entry(
+        self.observed_value_C.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_value_N = ttk.Entry(
             observed_value_frame,
             textvariable=self.observation_value_N,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        observed_value_N.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        observed_value_S = ttk.Entry(
+        self.observed_value_N.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_value_S = ttk.Entry(
             observed_value_frame,
             textvariable=self.observation_value_S,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        observed_value_S.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        observed_value_H = ttk.Entry(
+        self.observed_value_S.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_value_H = ttk.Entry(
             observed_value_frame,
             textvariable=self.observation_value_H,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        observed_value_H.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_value_H.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
         solvent_frame = ttk.Frame(self.root)
         solvent_frame.pack(fill=tk.X)
         solvent_label = ttk.Label(
             solvent_frame, text="溶媒リスト", font=("TkDefaultFont", 14)
         )
-        solvent_label.pack(side=tk.TOP, padx=(5, 0), pady=5)
+        solvent_label.pack(side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5)
         self.listbox = tk.Listbox(
             solvent_frame,
             selectmode=tk.SINGLE,
             exportselection=False,
             height=5,
+            font=("TkDefaultFont", 14),
         )
         self.listbox.pack(
             side=tk.LEFT,
@@ -142,25 +157,26 @@ class elemental_analysis:
         self.analyze_button = ttk.Button(
             solvent_frame,
             text="チェック開始",
-            command=self.analyze,
+            command=self.on_start_button_click,
             style="Accent.TButton",
         )
         self.analyze_button.pack(
-            side=tk.LEFT,
+            side=tk.RIGHT,
             fill=tk.X,
             expand=True,
             padx=10,
             pady=10,
         )
-        result_frame = ttk.Frame(self.root, padding=10)
+        result_frame = ttk.Frame(self.root, padding=10, relief=tk.RAISED)
         result_frame.pack(fill=tk.BOTH, expand=True)
-        result_label = ttk.Label(
+        self.result_label = ttk.Label(
             result_frame, text="分析結果", font=("TkDefaultFont", 14)
         )
-        result_label.pack(side=tk.TOP, padx=(5, 0), pady=5)
-        self.result_text = tk.Text(
+        self.result_label.pack(side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5)
+        self.result_text = tk.Label(
             result_frame,
             font=("TkDefaultFont", 14),
+            anchor=tk.W,
         )
         self.result_text.pack(fill=tk.BOTH, expand=True)
 
@@ -188,6 +204,79 @@ class elemental_analysis:
         # クリック後もそのアイテムを選択状態に保つ (任意)
         self.listbox.selection_set(index)
         self.listbox.activate(index)
+
+    def on_start_button_click(self):
+        # 入力値の検証
+        if not self.composition_formula.get():
+            messagebox.showerror("入力エラー", "組成式を入力してください。")
+            return
+
+        try:
+            # 実測値の取得 (tk.DoubleVar.get() は TclError を送出する可能性あり)
+            # UIラベル "C" -> self.observation_value_C
+            val_c = self.observation_value_C.get()
+            # UIラベル "H" -> self.observation_value_N
+            val_h = self.observation_value_N.get()
+            # UIラベル "N" -> self.observation_value_S
+            val_n = self.observation_value_S.get()
+            # UIラベル "S" -> self.observation_value_H
+            val_s = self.observation_value_H.get()
+        except tk.TclError:
+            messagebox.showerror(
+                "入力エラー",
+                "実測値には有効な数値を入力してください。\n（例: 12.34 または 0）",
+            )
+            return
+
+        # --- ここからがボタンクリック後のメイン処理 ---
+        print("ボタンがクリックされました！")
+
+        try:
+            # ボタンと入力部分の無効化
+            self.analyze_button.config(state=tk.DISABLED)
+            self.formula_entry.config(state=tk.DISABLED)
+            self.listbox.config(state=tk.DISABLED)
+
+            # ttk.Entryウィジェットのインスタンス変数名を使用 (例: self.observed_value_C_entry)
+            # これらの変数名は __init__ メソッドで適切に設定されている必要があります。
+            self.observed_value_C.config(state=tk.DISABLED)
+            self.observed_value_N.config(state=tk.DISABLED)  # Hラベルに対応
+            self.observed_value_S.config(state=tk.DISABLED)  # Nラベルに対応
+            self.observed_value_H.config(state=tk.DISABLED)  # Sラベルに対応
+
+            self.result_text.config(text="分析中...")
+            # self.analyze() # 必要に応じて解析処理を呼び出す
+            analyze_process = threading.Thread(
+                target=self.perform_analysis, daemon=True
+            )
+            analyze_process.start()
+            self.result_text.config(text="分析中... (計算が完了するまでお待ちください)")
+        except AttributeError as e:
+            # Entryウィジェットの変数名が正しくない場合など
+            print(f"UI要素の更新中にエラーが発生しました: {e}")
+            messagebox.showerror("内部エラー", "UIコンポーネントの参照に失敗しました。")
+        except tk.TclError as e:
+            # config変更などで予期せぬTclErrorが発生した場合
+            print(f"UI要素の更新中にTclエラーが発生しました: {e}")
+            messagebox.showerror(
+                "内部エラー", "UIの更新処理中に予期せぬエラーが発生しました。"
+            )
+
+    def perform_analysis(self):
+        self.calculate_parameters()
+
+    def calculate_parameters(self):
+        # ここで計算を行う
+        solvent_atomic_mass = {
+            "H2O": {"C": 0, "H": 2.01588, "N": 0, "S": 0, "sum": 18.0159},
+            "n-hexane": {"C": 72.06, "H": 14.1112, "N": 0, "S": 0, "sum": 86.1712},
+        }
+        print("計算中...")
+        checked_solvent_list = []
+        for solvent, boolean in self.items_data:
+            if boolean:
+                checked_solvent_list.append(solvent)
+        print(f"チェックされた溶媒: {checked_solvent_list}")
 
     def analyze(self):
         # 定数行列の定義
