@@ -8,6 +8,7 @@ import numpy as np
 from tkinter import W, X, ttk
 from tkinter import messagebox  # messagebox をインポート
 import threading
+import chemparse
 
 
 class elemental_analysis:
@@ -263,10 +264,50 @@ class elemental_analysis:
             )
 
     def perform_analysis(self):
-        self.calculate_parameters()
+        atom_list = self.extract_atom()
+        self.calculate_parameters(atom_list)
 
-    def calculate_parameters(self):
+    def extract_atom(self):
+        formula = self.composition_formula.get()
+        result = chemparse.parse_formula(formula)
+        print(result)
+        return result
+
+    def calculate_parameters(self, atom_list):
         # ここで計算を行う
+        atomic_value = {
+            "C": 12.01,
+            "H": 1.00794,
+            "N": 14.007,
+            "B": 10.81,
+            "F": 18.9984,
+            "Cl": 35.45,  # "CI"ではなく"Cl"が一般的です
+            "P": 30.97,
+            "S": 32.06,
+            "O": 16.00,  # 画像では16ですが、一般的に16.00とされます
+            "Co": 58.93,
+            "Ni": 58.6934,
+            "Zn": 65.38,
+            "Na": 22.98977,
+            "Mg": 24.305,
+            "Al": 26.98154,
+            "Si": 28.0855,
+            "K": 39.0983,
+            "Ca": 40.08,
+            "Ti": 47.9,
+            "V": 50.9414,
+            "Cr": 51.996,
+            "Mn": 54.938,
+            "Cu": 63.546,
+            "Br": 79.904,
+            "Mo": 95.94,
+            "Ru": 101.07,
+            "Pd": 106.4,
+            "Ag": 107.868,
+            "Pt": 195.09,
+            "Au": 196.9665,
+            "Fe": 55.85,
+        }
         solvent_atomic_mass = {
             "H2O": {"C": 0, "H": 2.01588, "N": 0, "S": 0, "sum": 18.0159},
             "n-hexane": {"C": 72.06, "H": 14.1112, "N": 0, "S": 0, "sum": 86.1712},
