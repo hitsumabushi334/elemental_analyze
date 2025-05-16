@@ -7,5 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "chemparse>=0.3.2",
     "cvxpy>=1.6.5",
+    "ecos>=2.0.14",
     "numpy>=2.2.5",
 ]

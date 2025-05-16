@@ -1,6 +1,7 @@
 from ast import arg
 from logging import root
 from math import e
+from multiprocessing import Value
 import tkinter as tk
 from unittest import result
 import cvxpy as cp
@@ -18,12 +19,13 @@ class elemental_analysis:
         self.root.geometry("400x500")
         self.root.minsize(400, 500)
         self.root.update_idletasks()
-        self.composition_formula = tk.StringVar()
-        self.observation_value_C = tk.DoubleVar(value="")
-        self.observation_value_N = tk.DoubleVar(value="")
-        self.observation_value_S = tk.DoubleVar(value="")
-        self.observation_value_H = tk.DoubleVar(value="")
-        self.items_data = [  # (表示テキスト, 初期チェック状態)
+        self.compound_formula_var = tk.StringVar()
+        self.observed_c_var = tk.DoubleVar(value="")
+        self.observed_h_var = tk.DoubleVar(value="")  # NからHに変更
+        self.observed_n_var = tk.DoubleVar(value="")  # SからNに変更
+        self.observed_s_var = tk.DoubleVar(value="")  # HからSに変更
+
+        self.SOLVENT_DATA = [  # (表示テキスト, 初期チェック状態)
             ("H2O", False),
             ("DMF", False),
             ("MeOH", False),
@@ -40,188 +42,211 @@ class elemental_analysis:
             ("MeCN", False),
             ("Ethyl acetate", False),
         ]
-        self.observation_result = tk.StringVar(value="分析結果")
+        self.analysis_result_var = tk.StringVar(value="")
         self.checked_solvent_list = []
+        self.solvent_element_mass_array = np.array([])  # solvent_mass_array から変更
+        self.solvent_molecular_weight_array = np.array(
+            []
+        )  # solvent_mass_sum_array から変更
+        self.compound_molecular_weight = 0  # composition_mass から変更
+        self.compound_element_mass_array = np.array(
+            []
+        )  # composition_atom_mass から変更
+        self.observed_element_fractions_array = np.array([])
+
         # UIの作成
-        formula_frame = ttk.Frame(self.root, padding=(10, 15))
-        formula_frame.pack(fill=tk.X)
-        formula_label = ttk.Label(
-            formula_frame, text="組成式:", font=("TkDefaultFont", 14)
+        compound_formula_frame = ttk.Frame(self.root, padding=(10, 15))
+        compound_formula_frame.pack(fill=tk.X)
+        compound_formula_label = ttk.Label(
+            compound_formula_frame, text="組成式:", font=("TkDefaultFont", 14)
         )
-        formula_label.pack(side=tk.LEFT, padx=(5, 0), pady=5)
-        self.formula_entry = ttk.Entry(
-            formula_frame,
+        compound_formula_label.pack(side=tk.LEFT, padx=(5, 0), pady=5)
+        self.compound_formula_entry = ttk.Entry(
+            compound_formula_frame,
             font=("TkDefaultFont", 14),
-            textvariable=self.composition_formula,
+            textvariable=self.compound_formula_var,
             width=45,
         )
-        self.formula_entry.pack(fill=tk.X, padx=5, pady=5)
-        observed_frame = ttk.Frame(self.root, padding=10)
-        observed_frame.pack(fill=tk.BOTH)
-        observed_label = ttk.Label(
-            observed_frame, text="実測値(%)", font=("TkDefaultFont", 14)
+        self.compound_formula_entry.pack(fill=tk.X, padx=5, pady=5)
+
+        observed_values_main_frame = ttk.Frame(self.root, padding=10)
+        observed_values_main_frame.pack(fill=tk.BOTH)
+        observed_values_title_label = ttk.Label(
+            observed_values_main_frame, text="実測値(%)", font=("TkDefaultFont", 14)
         )
-        # 「実測値」ラベルの右側にスペースを設ける
-        observed_label.pack(
+        observed_values_title_label.pack(
             side=tk.TOP, fill=tk.X, anchor=W, padx=(5, 10), pady=(0, 10)
         )
-        observed_label_frame = ttk.Frame(observed_frame, padding=10, relief=tk.RAISED)
-        observed_label_frame.pack(fill=tk.X)
+        observed_element_labels_frame = ttk.Frame(
+            observed_values_main_frame, padding=10, relief=tk.RAISED
+        )
+        observed_element_labels_frame.pack(fill=tk.X)
 
-        # 各要素ラベルに共通で適用する左右のパディング
         element_label_padx = 5
 
-        observed_label_C = ttk.Label(
-            observed_label_frame, text="C", font=("TkDefaultFont", 14), anchor=tk.CENTER
+        observed_c_label = ttk.Label(
+            observed_element_labels_frame,
+            text="C",
+            font=("TkDefaultFont", 14),
+            anchor=tk.CENTER,
         )
-        observed_label_C.pack(
+        observed_c_label.pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=element_label_padx, pady=5
         )
-        observed_label_N = ttk.Label(
-            observed_label_frame, text="H", font=("TkDefaultFont", 14), anchor=tk.CENTER
+        observed_h_label = ttk.Label(  # NからHに変更
+            observed_element_labels_frame,
+            text="H",
+            font=("TkDefaultFont", 14),
+            anchor=tk.CENTER,
         )
-        observed_label_N.pack(
+        observed_h_label.pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=element_label_padx, pady=5
         )
-        observed_label_S = ttk.Label(
-            observed_label_frame, text="N", font=("TkDefaultFont", 14), anchor=tk.CENTER
+        observed_n_label = ttk.Label(  # SからNに変更
+            observed_element_labels_frame,
+            text="N",
+            font=("TkDefaultFont", 14),
+            anchor=tk.CENTER,
         )
-        observed_label_S.pack(
+        observed_n_label.pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=element_label_padx, pady=5
         )
-        observed_label_H = ttk.Label(
-            observed_label_frame, text="S", font=("TkDefaultFont", 14), anchor=tk.CENTER
+        observed_s_label = ttk.Label(  # HからSに変更
+            observed_element_labels_frame,
+            text="S",
+            font=("TkDefaultFont", 14),
+            anchor=tk.CENTER,
         )
-        observed_label_H.pack(
+        observed_s_label.pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=element_label_padx, pady=5
         )
-        observed_value_frame = ttk.Frame(observed_frame, padding=10, relief=tk.RAISED)
-        observed_value_frame.pack(fill=tk.X, pady=5, side=tk.TOP)
-        self.observed_value_C = ttk.Entry(
-            observed_value_frame,
-            textvariable=self.observation_value_C,
+
+        observed_value_entries_frame = ttk.Frame(
+            observed_values_main_frame, padding=10, relief=tk.RAISED
+        )
+        observed_value_entries_frame.pack(fill=tk.X, pady=5, side=tk.TOP)
+
+        self.observed_c_entry = ttk.Entry(
+            observed_value_entries_frame,
+            textvariable=self.observed_c_var,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        self.observed_value_C.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        self.observed_value_N = ttk.Entry(
-            observed_value_frame,
-            textvariable=self.observation_value_N,
+        self.observed_c_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_h_entry = ttk.Entry(  # NからHに変更
+            observed_value_entries_frame,
+            textvariable=self.observed_h_var,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        self.observed_value_N.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        self.observed_value_S = ttk.Entry(
-            observed_value_frame,
-            textvariable=self.observation_value_S,
+        self.observed_h_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_n_entry = ttk.Entry(  # SからNに変更
+            observed_value_entries_frame,
+            textvariable=self.observed_n_var,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        self.observed_value_S.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        self.observed_value_H = ttk.Entry(
-            observed_value_frame,
-            textvariable=self.observation_value_H,
+        self.observed_n_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+        self.observed_s_entry = ttk.Entry(  # HからSに変更
+            observed_value_entries_frame,
+            textvariable=self.observed_s_var,
             font=("TkDefaultFont", 14),
             width=5,
         )
-        self.observed_value_H.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        solvent_frame = ttk.Frame(self.root)
-        solvent_frame.pack(fill=tk.X)
-        solvent_label = ttk.Label(
-            solvent_frame, text="溶媒リスト", font=("TkDefaultFont", 14)
+        self.observed_s_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
+
+        solvent_selection_frame = ttk.Frame(self.root)
+        solvent_selection_frame.pack(fill=tk.X)
+        solvent_list_label = ttk.Label(
+            solvent_selection_frame, text="溶媒リスト", font=("TkDefaultFont", 14)
         )
-        solvent_label.pack(side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5)
-        self.listbox = tk.Listbox(
-            solvent_frame,
+        solvent_list_label.pack(side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5)
+        self.solvent_listbox = tk.Listbox(
+            solvent_selection_frame,
             selectmode=tk.SINGLE,
             exportselection=False,
             height=5,
             font=("TkDefaultFont", 14),
         )
-        self.listbox.pack(
+        self.solvent_listbox.pack(
             side=tk.LEFT,
             fill=tk.X,
             expand=True,
             padx=10,
         )
 
-        window_scrollbar = ttk.Scrollbar(
-            solvent_frame, orient=tk.VERTICAL, command=self.listbox.yview
+        solvent_list_scrollbar = ttk.Scrollbar(
+            solvent_selection_frame,
+            orient=tk.VERTICAL,
+            command=self.solvent_listbox.yview,
         )
-        window_scrollbar.pack(side=tk.LEFT, fill=tk.Y)
-        self.listbox.config(yscrollcommand=window_scrollbar.set)
-        self.populate_listbox()
+        solvent_list_scrollbar.pack(side=tk.LEFT, fill=tk.Y)
+        self.solvent_listbox.config(yscrollcommand=solvent_list_scrollbar.set)
+        self.populate_solvent_listbox()
 
-        self.listbox.bind("<<ListboxSelect>>", self.on_item_click)
-        # または、より直接的なクリックイベントを拾う場合:
-        # self.listbox.bind("<ButtonRelease-1>", self.on_item_click_button)
-        self.analyze_button = ttk.Button(
-            solvent_frame,
+        self.solvent_listbox.bind("<<ListboxSelect>>", self.on_solvent_listbox_click)
+
+        self.start_analysis_button = ttk.Button(
+            solvent_selection_frame,
             text="チェック開始",
-            command=self.on_start_button_click,
+            command=self.on_start_analysis_button_click,
             style="Accent.TButton",
         )
-        self.analyze_button.pack(
+        self.start_analysis_button.pack(
             side=tk.RIGHT,
             fill=tk.X,
             expand=True,
             padx=10,
             pady=10,
         )
-        result_frame = ttk.Frame(self.root, padding=10, relief=tk.RAISED)
-        result_frame.pack(fill=tk.BOTH, expand=True)
-        self.result_label = ttk.Label(
-            result_frame, text="分析結果", font=("TkDefaultFont", 14)
+        analysis_result_display_frame = ttk.Frame(
+            self.root, padding=10, relief=tk.RAISED
         )
-        self.result_label.pack(side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5)
-        self.result_text = tk.Label(
-            result_frame,
+        analysis_result_display_frame.pack(fill=tk.BOTH, expand=True)
+        self.analysis_result_title_label = ttk.Label(
+            analysis_result_display_frame, text="分析結果", font=("TkDefaultFont", 14)
+        )
+        self.analysis_result_title_label.pack(
+            side=tk.TOP, anchor=tk.W, padx=(5, 0), pady=5
+        )
+        self.analysis_result_content_label = tk.Label(
+            analysis_result_display_frame,
             font=("TkDefaultFont", 14),
             anchor=tk.W,
+            textvariable=self.analysis_result_var,  # textvariable を設定
         )
-        self.result_text.pack(fill=tk.BOTH, expand=True)
+        self.analysis_result_content_label.pack(fill=tk.BOTH, expand=True)
 
-    def populate_listbox(self):
-        self.listbox.delete(0, tk.END)  # 既存のアイテムをクリア
-        for text, checked in self.items_data:
+    def populate_solvent_listbox(self):
+        self.solvent_listbox.delete(0, tk.END)  # 既存のアイテムをクリア
+        for text, checked in self.SOLVENT_DATA:
             prefix = "[x] " if checked else "[ ] "
-            self.listbox.insert(tk.END, prefix + text)
+            self.solvent_listbox.insert(tk.END, prefix + text)
 
-    def on_item_click(self, event):
+    def on_solvent_listbox_click(self, event):
         widget = event.widget
-        selection = widget.curselection()  # 選択されたアイテムのインデックスを取得
+        selection = widget.curselection()
         if not selection:
             return
 
         index = selection[0]
+        original_text, current_checked_state = self.SOLVENT_DATA[index]
+        self.SOLVENT_DATA[index] = (original_text, not current_checked_state)
+        self.populate_solvent_listbox()
+        self.solvent_listbox.selection_set(index)
+        self.solvent_listbox.activate(index)
 
-        # チェック状態をトグル
-        original_text, current_checked_state = self.items_data[index]
-        self.items_data[index] = (original_text, not current_checked_state)
-
-        # リストボックスの表示を更新
-        self.populate_listbox()
-
-        # クリック後もそのアイテムを選択状態に保つ (任意)
-        self.listbox.selection_set(index)
-        self.listbox.activate(index)
-
-    def on_start_button_click(self):
-        # 入力値の検証
-        if not self.composition_formula.get():
+    def on_start_analysis_button_click(self):
+        if not self.compound_formula_var.get():
             messagebox.showerror("入力エラー", "組成式を入力してください。")
             return
 
         try:
-            # 実測値の取得 (tk.DoubleVar.get() は TclError を送出する可能性あり)
-            # UIラベル "C" -> self.observation_value_C
-            val_c = self.observation_value_C.get()
-            # UIラベル "H" -> self.observation_value_N
-            val_h = self.observation_value_N.get()
-            # UIラベル "N" -> self.observation_value_S
-            val_n = self.observation_value_S.get()
-            # UIラベル "S" -> self.observation_value_H
-            val_s = self.observation_value_H.get()
+            # 実測値の取得
+            observed_c = self.observed_c_var.get()
+            observed_h = self.observed_h_var.get()
+            observed_n = self.observed_n_var.get()
+            observed_s = self.observed_s_var.get()
         except tk.TclError:
             messagebox.showerror(
                 "入力エラー",
@@ -229,62 +254,138 @@ class elemental_analysis:
             )
             return
 
-        # --- ここからがボタンクリック後のメイン処理 ---
-        print("ボタンがクリックされました！")
+        print("分析開始ボタンがクリックされました！")
 
         try:
-            # ボタンと入力部分の無効化
-            self.analyze_button.config(state=tk.DISABLED)
-            self.formula_entry.config(state=tk.DISABLED)
-            self.listbox.config(state=tk.DISABLED)
+            self.start_analysis_button.config(state=tk.DISABLED)
+            self.compound_formula_entry.config(state=tk.DISABLED)
+            self.solvent_listbox.config(state=tk.DISABLED)
+            self.observed_c_entry.config(state=tk.DISABLED)
+            self.observed_h_entry.config(state=tk.DISABLED)
+            self.observed_n_entry.config(state=tk.DISABLED)
+            self.observed_s_entry.config(state=tk.DISABLED)
 
-            # ttk.Entryウィジェットのインスタンス変数名を使用 (例: self.observed_value_C_entry)
-            # これらの変数名は __init__ メソッドで適切に設定されている必要があります。
-            self.observed_value_C.config(state=tk.DISABLED)
-            self.observed_value_N.config(state=tk.DISABLED)  # Hラベルに対応
-            self.observed_value_S.config(state=tk.DISABLED)  # Nラベルに対応
-            self.observed_value_H.config(state=tk.DISABLED)  # Sラベルに対応
-
-            self.result_text.config(text="分析中...")
-            # self.analyze() # 必要に応じて解析処理を呼び出す
-            analyze_process = threading.Thread(
-                target=self.perform_analysis, daemon=True
+            self.analysis_result_var.set("分析中...")  # textvariable を使用して更新
+            analysis_thread = threading.Thread(
+                target=self.run_analysis_calculations,
+                daemon=True,  # perform_analysis から変更
             )
-            analyze_process.start()
-            self.result_text.config(text="分析中... (計算が完了するまでお待ちください)")
+            analysis_thread.start()
+            # スレッド開始後、すぐに完了メッセージを出すのではなく、スレッド内で結果を更新する
+            # self.analysis_result_var.set("分析中... (計算が完了するまでお待ちください)")
         except AttributeError as e:
-            # Entryウィジェットの変数名が正しくない場合など
             print(f"UI要素の更新中にエラーが発生しました: {e}")
             messagebox.showerror("内部エラー", "UIコンポーネントの参照に失敗しました。")
+            # UIを有効に戻す処理を追加することが望ましい
+            self.enable_ui_elements()
         except tk.TclError as e:
-            # config変更などで予期せぬTclErrorが発生した場合
             print(f"UI要素の更新中にTclエラーが発生しました: {e}")
             messagebox.showerror(
                 "内部エラー", "UIの更新処理中に予期せぬエラーが発生しました。"
             )
+            self.enable_ui_elements()
 
-    def perform_analysis(self):
-        atom_list = self.extract_atom()
-        self.calculate_parameters(atom_list)
+    def enable_ui_elements(self):
+        """UI要素を有効状態に戻すヘルパーメソッド"""
+        self.start_analysis_button.config(state=tk.NORMAL)
+        self.compound_formula_entry.config(state=tk.NORMAL)
+        self.solvent_listbox.config(state=tk.NORMAL)
+        self.observed_c_entry.config(state=tk.NORMAL)
+        self.observed_h_entry.config(state=tk.NORMAL)
+        self.observed_n_entry.config(state=tk.NORMAL)
+        self.observed_s_entry.config(state=tk.NORMAL)
 
-    def extract_atom(self):
-        formula = self.composition_formula.get()
-        result = chemparse.parse_formula(formula)
-        print(result)
-        return result
+    def run_analysis_calculations(self):  # perform_analysis から変更
+        parsed_compound_elements_dict = (
+            self.parse_compound_formula()
+        )  # extract_atom から変更
+        if self.validate_elements_in_formula(
+            parsed_compound_elements_dict
+        ):  # check_formula から変更
+            self.analysis_result_var.set(
+                "エラー: 利用できない元素が組成式に含まれています。"
+            )  # textvariable を使用
+            self.enable_ui_elements()  # UIを有効に戻す
+            return
+        self.prepare_calculation_data(
+            parsed_compound_elements_dict
+        )  # calculate_parameters から変更
+        self.execute_optimization_calculations()  # analyze から変更、一旦コメントアウト
 
-    def calculate_parameters(self, atom_list):
-        # ここで計算を行う
-        atomic_value = {
+        # 計算完了後 (execute_optimization_calculations の後など) に結果を表示
+        # この例では、prepare_calculation_data の結果を仮表示
+        result_summary = f"計算準備完了。\n"
+        result_summary += f"チェックされた溶媒: {self.checked_solvent_list}\n"
+        result_summary += f"溶媒元素質量配列:\n{self.solvent_element_mass_array}\n"
+        result_summary += f"溶媒分子量配列:\n{self.solvent_molecular_weight_array}\n"
+        result_summary += f"化合物分子量: {self.compound_molecular_weight}\n"
+        result_summary += f"化合物元素質量配列:\n{self.compound_element_mass_array}"
+        self.analysis_result_var.set(result_summary)
+        self.enable_ui_elements()  # UIを有効に戻す
+
+    def parse_compound_formula(self):  # extract_atom から変更
+        formula_str = self.compound_formula_var.get()
+        parsed_elements = chemparse.parse_formula(formula_str)
+        print(f"パースされた組成式: {parsed_elements}")
+        return parsed_elements
+
+    def validate_elements_in_formula(
+        self, parsed_elements_dict
+    ):  # check_formula から変更
+        ALLOWED_ELEMENTS_SET = {
+            "C",
+            "H",
+            "N",
+            "S",
+            "B",
+            "F",
+            "Cl",
+            "P",
+            "O",
+            "Co",
+            "Ni",
+            "Zn",
+            "Na",
+            "Mg",
+            "Al",
+            "Si",
+            "K",
+            "Ca",
+            "Ti",
+            "V",
+            "Cr",
+            "Mn",
+            "Cu",
+            "Br",
+            "Mo",
+            "Ru",
+            "Pd",
+            "Ag",
+            "Pt",
+            "Au",
+            "Fe",
+        }
+        for element_symbol in parsed_elements_dict.keys():
+            if element_symbol not in ALLOWED_ELEMENTS_SET:
+                print(
+                    f"エラー: 許可されていない元素 '{element_symbol}' が検出されました。"
+                )
+                return True  # エラーあり
+        return False  # エラーなし
+
+    def prepare_calculation_data(
+        self, parsed_compound_elements_dict
+    ):  # calculate_parameters から変更
+        ATOMIC_WEIGHTS_DICT = {
             "C": 12.01,
             "H": 1.00794,
             "N": 14.007,
             "B": 10.81,
             "F": 18.9984,
-            "Cl": 35.45,  # "CI"ではなく"Cl"が一般的です
+            "Cl": 35.45,
             "P": 30.97,
             "S": 32.06,
-            "O": 16.00,  # 画像では16ですが、一般的に16.00とされます
+            "O": 16.00,
             "Co": 58.93,
             "Ni": 58.6934,
             "Zn": 65.38,
@@ -308,128 +409,230 @@ class elemental_analysis:
             "Au": 196.9665,
             "Fe": 55.85,
         }
-        solvent_atomic_mass = {
+        SOLVENT_ELEMENTAL_COMPOSITION_DATA = {
             "H2O": {"C": 0, "H": 2.01588, "N": 0, "S": 0, "sum": 18.0159},
+            "DMF": {"C": 36.03, "H": 7.0558, "N": 14.007, "S": 0, "sum": 73.0926},
+            "MeOH": {"C": 12.01, "H": 4.03176, "N": 0, "S": 0, "sum": 32.0418},
             "n-hexane": {"C": 72.06, "H": 14.1112, "N": 0, "S": 0, "sum": 86.1712},
+            "n-pentane": {"C": 60.05, "H": 12.0953, "N": 0, "S": 0, "sum": 72.1453},
+            "CH2Cl2": {
+                "C": 12.01,
+                "H": 2.01588,
+                "N": 0,
+                "S": 0,
+                "sum": 84.9259,
+            },  # Cl追加
+            "Acetone": {"C": 36.03, "H": 6.04764, "N": 0, "S": 0, "sum": 58.0776},
+            "THF": {"C": 48.04, "H": 8.06352, "N": 0, "S": 0, "sum": 72.1035},
             "EtOH": {"C": 24.02, "H": 6.04764, "N": 0, "S": 0, "sum": 46.0676},
             "Et2O": {"C": 48.04, "H": 10.0794, "N": 0, "S": 0, "sum": 74.1194},
-            "MeCN": {"C": 24.02, "H": 3.02382, "N": 14.007, "S": 0, "sum": 41.0508},
-            "CH2Cl2": {"C": 12.01, "H": 2.01588, "N": 0, "S": 0, "sum": 84.9259},
-            "MeOH": {"C": 12.01, "H": 4.03176, "N": 0, "S": 0, "sum": 32.0418},
-            "CH3Cl": {"C": 12.01, "H": 3.02382, "N": 0, "S": 0, "sum": 50.4838},
-            "DMF": {"C": 36.03, "H": 7.0558, "N": 14.007, "S": 0, "sum": 73.0926},
-            "n-pentane": {"C": 60.05, "H": 12.0953, "N": 0, "S": 0, "sum": 72.1453},
-            "Acetone": {"C": 36.03, "H": 6.04764, "N": 0, "S": 0, "sum": 58.0776},
-            "ethyl acetate": {"C": 48.04, "H": 8.06352, "N": 0, "S": 0, "sum": 88.1035},
             "DMSO": {"C": 24.02, "H": 6.04764, "N": 0, "S": 32.06, "sum": 78.1276},
-            "toluene": {"C": 84.07, "H": 8.06352, "N": 0, "S": 0, "sum": 92.1335},
-            "THF": {"C": 48.04, "H": 8.06352, "N": 0, "S": 0, "sum": 72.1035},
+            "Toluene": {"C": 84.07, "H": 8.06352, "N": 0, "S": 0, "sum": 92.1335},
+            "CH3Cl": {
+                "C": 12.01,
+                "H": 3.02382,
+                "N": 0,
+                "S": 0,
+                "sum": 50.4838,
+            },  # Cl追加
+            "MeCN": {"C": 24.02, "H": 3.02382, "N": 14.007, "S": 0, "sum": 41.0508},
+            "Ethyl acetate": {"C": 48.04, "H": 8.06352, "N": 0, "S": 0, "sum": 88.1035},
         }
-        print("計算中...")
-        checked_solvent_list = []
-        for solvent, boolean in self.items_data:
-            if boolean:
-                checked_solvent_list.append(solvent)
-        print(f"チェックされた溶媒: {checked_solvent_list}")
+        print("計算パラメータ準備中...")
+        self.checked_solvent_list = [
+            solvent_name for solvent_name, is_checked in self.SOLVENT_DATA if is_checked
+        ]
 
-    def analyze(self):
+        TARGET_ELEMENT_ORDER_LIST = ["C", "H", "N", "S"]  # element_order から変更
+
+        solvent_element_mass_columns_list = []
+        solvent_molecular_weight_list = []
+
+        for solvent_name_str in self.checked_solvent_list:
+            if solvent_name_str in SOLVENT_ELEMENTAL_COMPOSITION_DATA:
+                solvent_data_dict = SOLVENT_ELEMENTAL_COMPOSITION_DATA[solvent_name_str]
+                current_solvent_element_masses = []
+                solvent_molecular_weight_list.append(solvent_data_dict.get("sum", 0.0))
+                for element_symbol_str in TARGET_ELEMENT_ORDER_LIST:
+                    current_solvent_element_masses.append(
+                        solvent_data_dict.get(element_symbol_str, 0.0)
+                    )
+                solvent_element_mass_columns_list.append(current_solvent_element_masses)
+            else:
+                print(
+                    f"警告: 溶媒 '{solvent_name_str}' の原子質量データが見つかりません。"
+                )
+
+        if solvent_element_mass_columns_list:
+            self.solvent_element_mass_array = np.array(
+                solvent_element_mass_columns_list
+            ).T
+        else:
+            self.solvent_element_mass_array = np.empty(
+                (len(TARGET_ELEMENT_ORDER_LIST), 0)
+            )
+
+        if solvent_molecular_weight_list:
+            self.solvent_molecular_weight_array = np.array(
+                solvent_molecular_weight_list
+            )
+        else:
+            # solvent_molecular_weight_array は1次元配列なので、(0,) または np.array([]) が適切
+            self.solvent_molecular_weight_array = np.array([])
+
+        self.compound_molecular_weight = 0  # 初期化
+        for element_symbol, count in parsed_compound_elements_dict.items():
+            if element_symbol in ATOMIC_WEIGHTS_DICT:
+                self.compound_molecular_weight += (
+                    count * ATOMIC_WEIGHTS_DICT[element_symbol]
+                )
+
+        compound_specific_element_mass_list = []
+        for target_element in TARGET_ELEMENT_ORDER_LIST:
+            if target_element in parsed_compound_elements_dict:
+                compound_specific_element_mass_list.append(
+                    parsed_compound_elements_dict[target_element]
+                    * ATOMIC_WEIGHTS_DICT[target_element]
+                )
+            else:
+                compound_specific_element_mass_list.append(0.0)
+        self.compound_element_mass_array = np.array(compound_specific_element_mass_list)
+        observed_element_fractions_list = [
+            self.observed_c_var.get(),
+            self.observed_h_var.get(),
+            self.observed_n_var.get(),
+            self.observed_s_var.get(),
+        ]
+        self.observed_element_fractions_array = np.array(
+            observed_element_fractions_list
+        )
+
+        print(f"チェックされた溶媒: {self.checked_solvent_list}")
+        print(f"溶媒元素質量配列 shape: {self.solvent_element_mass_array.shape}")
+        print(f"溶媒元素質量配列 content:\n{self.solvent_element_mass_array}")
+        print(f"溶媒分子量配列 shape: {self.solvent_molecular_weight_array.shape}")
+        print(f"溶媒分子量配列 content:\n{self.solvent_molecular_weight_array}")
+        print(f"化合物分子量: {self.compound_molecular_weight}")
+        print(f"化合物中元素質量配列: {self.compound_element_mass_array}")
+        print(f"実測値配列: {self.observed_element_fractions_array}")
+
+    def execute_optimization_calculations(self):
         # 定数行列の定義
-        n = 3  # 変数の次元
-        m = 4  # 出力の次元 (要素数)
+        num_solvents = len(self.checked_solvent_list)
+        num_elements = 4  # C, H, N, S
 
-        # ランダムな定数行列（正値調整済み）
-        np.random.seed(0)
-        # N_coeffs と M_coeffs は各要素のスカラー定数項なので (m, 1) または (m,) が適切
-        # B_coeffs と A_coeffs は各要素のxの係数ベクトルなので (m, n) が適切
-        # ユーザー指定に合わせるために N と M の初期化とアクセスを調整
-        N_mat = np.random.randn(1, m)  # (1, m) ユーザー指定に合わせる
-        B_mat = np.random.randn(m, n)  # (m, n)
-        M_mat = np.abs(np.random.randn(1, m)) + 1  # (1, m) ユーザー指定に合わせる
-        A_mat = np.abs(np.random.randn(m, n))  # (m, n)
+        if num_solvents == 0:
+            print("最適化エラー: 溶媒が選択されていません。")
+            self.analysis_result_var.set("最適化エラー: 溶媒が選択されていません。")
+            return None, None, None, None
 
-        max_values = []
-        min_values = []
-        max_solutions_x = []  # 元の変数 x の解を格納
-        min_solutions_x = []  # 元の変数 x の解を格納
+        compound_element_masses = self.compound_element_mass_array
+        solvent_element_masses_matrix = self.solvent_element_mass_array
+        compound_mw_scalar = self.compound_molecular_weight
+        solvent_mw_vector = self.solvent_molecular_weight_array
+        observed_fractions = self.observed_element_fractions_array  # 実測値 (%)
 
-        for i in range(m):
-            N_scalar = N_mat[0, i]  # N_mat が (1,m) の場合
-            B_vector = B_mat[i, :]
-            M_scalar = M_mat[0, i]  # M_mat が (1,m) の場合
-            A_vector = A_mat[i, :]
+        max_percentage_values = []
+        min_percentage_values = []
+        max_optimal_solvent_ratios = []
+        min_optimal_solvent_ratios = []
 
-            # 変数の定義 (Charnes-Cooper変換後の変数 y と t)
-            y_cc = cp.Variable(n, name="y_cc")
-            t_cc = cp.Variable(nonneg=True, name="t_cc")  # t >= 0
+        element_symbols_for_debug = ["C", "H", "N", "S"]  # デバッグ出力用
+
+        for i in range(num_elements):
+            N_val = compound_element_masses[i]
+            B_vec = solvent_element_masses_matrix[i, :]
+            M_val = compound_mw_scalar
+            A_vec = solvent_mw_vector
+            obs_percentage_val = observed_fractions[i]
+
+            y_cc_var = cp.Variable(num_solvents, name=f"y_cc_elem{i}")
+            t_cc_var = cp.Variable(nonneg=True, name=f"t_cc_elem{i}")  # t >= 0
+
+            common_constraints = [
+                M_val * t_cc_var + A_vec @ y_cc_var == 1,  # 分母の線形化
+                y_cc_var >= 0,  # 元の変数 x >= 0
+                y_cc_var <= 10 * t_cc_var,  # 元の変数 x <= 5
+                # t_cc_var >= 1e-8 #  t > 0 を数値的に保証する場合 (分母がほぼ0になるのを避ける)
+            ]
+
+            # 目的関数 (パーセント値)
+            objective_percentage_expr = 100 * (N_val * t_cc_var + B_vec @ y_cc_var)
 
             # --- 最大化 ---
-            obj_max = cp.Maximize(N_scalar * t_cc + B_vector @ y_cc)
-            constraints_max = [
-                M_scalar * t_cc + A_vector @ y_cc == 1,
-                y_cc >= 0,  # From 0 <= x
-                y_cc <= 5 * t_cc,  # From x <= 5
-                1 >= 1e-6 * t_cc,  # From M_scalar + A_vector @ x >= 1e-6
-                # t_cc >= 1e-7        # 必要に応じて t > 0 を数値的に保証 (通常は不要)
+            # 制約: 計算されるパーセント値 <= 実測値パーセント値
+            constraints_for_max = common_constraints + [
+                objective_percentage_expr <= obs_percentage_val
             ]
+            problem_obj_max = cp.Maximize(objective_percentage_expr)
+
             try:
-                prob_max = cp.Problem(obj_max, constraints_max)
-                prob_max.solve()
-                if prob_max.status == "optimal":
-                    max_values.append(prob_max.value)
-                    # t_cc.value が非常に小さい場合、数値誤差に注意
-                    if (
-                        t_cc.value is not None and abs(t_cc.value) > 1e-9
-                    ):  # ゼロ割を避ける
-                        max_solutions_x.append(y_cc.value / t_cc.value)
+                prob_instance_max = cp.Problem(problem_obj_max, constraints_for_max)
+                prob_instance_max.solve(solver=cp.ECOS)  # ECOSソルバーを指定
+                if prob_instance_max.status in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
+                    max_percentage_values.append(prob_instance_max.value)
+                    if t_cc_var.value is not None and abs(t_cc_var.value) > 1e-9:
+                        max_optimal_solvent_ratios.append(
+                            y_cc_var.value / t_cc_var.value
+                        )
                     else:
-                        max_solutions_x.append(None)  # t_cc がほぼ0か未定義
+                        max_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
                 else:
-                    max_values.append(None)
-                    max_solutions_x.append(None)
-                    # print(f"Max problem {i+1} status: {prob_max.status}") # デバッグ用
+                    max_percentage_values.append(np.nan)
+                    max_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
+                    print(
+                        f"Max problem for element {element_symbols_for_debug[i]} (obs={obs_percentage_val:.2f}%) status: {prob_instance_max.status}"
+                    )
             except Exception as e:
-                # print(f"Max problem {i+1} exception: {e}") # デバッグ用
-                max_values.append(None)
-                max_solutions_x.append(None)
+                print(
+                    f"Max problem for element {element_symbols_for_debug[i]} exception: {e}"
+                )
+                max_percentage_values.append(np.nan)
+                max_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
 
             # --- 最小化 ---
-            obj_min = cp.Minimize(N_scalar * t_cc + B_vector @ y_cc)
-            # 制約は最大化と同じ
-            constraints_min = (
-                constraints_max  # y_cc と t_cc は Minimize problem で再利用される
-            )
-            # (CVXPYでは問題ごとに変数がスコープされる)
+            # 制約: 計算されるパーセント値 >= 実測値パーセント値
+            constraints_for_min = common_constraints + [
+                objective_percentage_expr >= obs_percentage_val
+            ]
+            problem_obj_min = cp.Minimize(objective_percentage_expr)
 
             try:
-                prob_min = cp.Problem(obj_min, constraints_min)
-                prob_min.solve()
-                if prob_min.status == "optimal":
-                    min_values.append(prob_min.value)
-                    if (
-                        t_cc.value is not None and abs(t_cc.value) > 1e-9
-                    ):  # ゼロ割を避ける
-                        min_solutions_x.append(y_cc.value / t_cc.value)
+                prob_instance_min = cp.Problem(problem_obj_min, constraints_for_min)
+                prob_instance_min.solve(solver=cp.ECOS)  # ECOSソルバーを指定
+                if prob_instance_min.status in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
+                    min_percentage_values.append(prob_instance_min.value)
+                    if t_cc_var.value is not None and abs(t_cc_var.value) > 1e-9:
+                        min_optimal_solvent_ratios.append(
+                            y_cc_var.value / t_cc_var.value
+                        )
                     else:
-                        min_solutions_x.append(None)  # t_cc がほぼ0か未定義
+                        min_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
                 else:
-                    min_values.append(None)
-                    min_solutions_x.append(None)
-                    # print(f"Min problem {i+1} status: {prob_min.status}") # デバッグ用
+                    min_percentage_values.append(np.nan)
+                    min_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
+                    print(
+                        f"Min problem for element {element_symbols_for_debug[i]} (obs={obs_percentage_val:.2f}%) status: {prob_instance_min.status}"
+                    )
             except Exception as e:
-                # print(f"Min problem {i+1} exception: {e}") # デバッグ用
-                min_values.append(None)
-                min_solutions_x.append(None)
+                print(
+                    f"Min problem for element {element_symbols_for_debug[i]} exception: {e}"
+                )
+                min_percentage_values.append(np.nan)
+                min_optimal_solvent_ratios.append(np.full(num_solvents, np.nan))
+        # 結果の表示
+        print(f"最大値{max_percentage_values}")
+        print(f"ｘ：{max_optimal_solvent_ratios}")
 
-        # 結果表示
-        print("=== 各要素の最大値 ===")
-        for i in range(m):
-            print(f"要素 {i+1}: {max_values[i]}")
-            print(f"  最適解 x: {max_solutions_x[i]}")
+        print(f"最小値{min_percentage_values}")
+        print(f"X:{min_optimal_solvent_ratios}")
 
-        print("\n=== 各要素の最小値 ===")
-        for i in range(m):
-            print(f"要素 {i+1}: {min_values[i]}")
-            print(f"  最適解 x: {min_solutions_x[i]}")
+        return (
+            max_percentage_values,
+            min_percentage_values,
+            max_optimal_solvent_ratios,
+            min_optimal_solvent_ratios,
+        )
 
 
 if __name__ == "__main__":
