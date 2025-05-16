@@ -447,7 +447,7 @@ class elemental_analysis:
 
         solvent_element_mass_columns_list = []
         solvent_molecular_weight_list = []
-
+        # 各溶媒の分子量と元素質量を取得
         for solvent_name_str in self.checked_solvent_list:
             if solvent_name_str in SOLVENT_ELEMENTAL_COMPOSITION_DATA:
                 solvent_data_dict = SOLVENT_ELEMENTAL_COMPOSITION_DATA[solvent_name_str]
@@ -462,7 +462,7 @@ class elemental_analysis:
                 print(
                     f"警告: 溶媒 '{solvent_name_str}' の原子質量データが見つかりません。"
                 )
-
+        # 溶媒の分子量と元素質量を配列に変換
         if solvent_element_mass_columns_list:
             self.solvent_element_mass_array = np.array(
                 solvent_element_mass_columns_list
@@ -479,14 +479,14 @@ class elemental_analysis:
         else:
             # solvent_molecular_weight_array は1次元配列なので、(0,) または np.array([]) が適切
             self.solvent_molecular_weight_array = np.array([])
-
+        # 化合物の分子量の計算
         self.compound_molecular_weight = 0  # 初期化
         for element_symbol, count in parsed_compound_elements_dict.items():
             if element_symbol in ATOMIC_WEIGHTS_DICT:
                 self.compound_molecular_weight += (
                     count * ATOMIC_WEIGHTS_DICT[element_symbol]
                 )
-
+        # 化合物中のC,H,N,Sの元素質量の計算
         compound_specific_element_mass_list = []
         for target_element in TARGET_ELEMENT_ORDER_LIST:
             if target_element in parsed_compound_elements_dict:
@@ -496,13 +496,16 @@ class elemental_analysis:
                 )
             else:
                 compound_specific_element_mass_list.append(0.0)
+        # 化合物の元素質量を配列に変換
         self.compound_element_mass_array = np.array(compound_specific_element_mass_list)
+        # 実測値の取得
         observed_element_fractions_list = [
             self.observed_c_var.get(),
             self.observed_h_var.get(),
             self.observed_n_var.get(),
             self.observed_s_var.get(),
         ]
+        # 実測値を配列に変換
         self.observed_element_fractions_array = np.array(
             observed_element_fractions_list
         )
