@@ -294,6 +294,24 @@ class elemental_analysis:
         self.observed_h_entry.config(state=tk.NORMAL)
         self.observed_n_entry.config(state=tk.NORMAL)
         self.observed_s_entry.config(state=tk.NORMAL)
+        self.SOLVENT_DATA = [  # (表示テキスト, 初期チェック状態)
+            ("H2O", False),
+            ("DMF", False),
+            ("MeOH", False),
+            ("n-hexane", False),
+            ("n-pentane", False),
+            ("CH2Cl2", False),
+            ("Acetone", False),
+            ("THF", False),
+            ("EtOH", False),
+            ("Et2O", False),
+            ("DMSO", False),
+            ("Toluene", False),
+            ("CH3Cl", False),
+            ("MeCN", False),
+            ("Ethyl acetate", False),
+        ]
+        self.populate_solvent_listbox()  # 溶媒リストを再描画
 
     def run_analysis_calculations(self):  # perform_analysis から変更
         parsed_compound_elements_dict = (
@@ -309,19 +327,22 @@ class elemental_analysis:
             return
         self.prepare_calculation_data(
             parsed_compound_elements_dict
-        )  # calculate_parameters から変更
-        self.execute_optimization_calculations()  # analyze から変更、一旦コメントアウト
+        )  # calculate_parameters
+        max_optimal_solvent_ratios, min_optimal_solvent_ratios = (
+            self.execute_optimization_calculations()
+        )  # analyze から変更、一旦コメントアウト
+        is_valid = self.evaluate_elemental_analysis(
+            max_optimal_solvent_ratios, min_optimal_solvent_ratios
+        )
+        self.finish_analysis_process(is_valid)
 
-        # 計算完了後 (execute_optimization_calculations の後など) に結果を表示
-        # この例では、prepare_calculation_data の結果を仮表示
-        result_summary = f"計算準備完了。\n"
-        result_summary += f"チェックされた溶媒: {self.checked_solvent_list}\n"
-        result_summary += f"溶媒元素質量配列:\n{self.solvent_element_mass_array}\n"
-        result_summary += f"溶媒分子量配列:\n{self.solvent_molecular_weight_array}\n"
-        result_summary += f"化合物分子量: {self.compound_molecular_weight}\n"
-        result_summary += f"化合物元素質量配列:\n{self.compound_element_mass_array}"
-        self.analysis_result_var.set(result_summary)
-        self.enable_ui_elements()  # UIを有効に戻す
+    def finish_analysis_process(self, is_valid):
+        """分析プロセスの終了処理"""
+        if is_valid:
+            self.analysis_result_var.set("溶媒分子10モル以内で解があります！")
+        else:
+            self.analysis_result_var.set("残念 アワンデス！")
+        self.enable_ui_elements()
 
     def parse_compound_formula(self):  # extract_atom から変更
         formula_str = self.compound_formula_var.get()
@@ -527,6 +548,7 @@ class elemental_analysis:
         if num_solvents == 0:
             print("最適化エラー: 溶媒が選択されていません。")
             self.analysis_result_var.set("最適化エラー: 溶媒が選択されていません。")
+            self.enable_ui_elements()
             return None, None, None, None
 
         compound_element_masses = self.compound_element_mass_array
@@ -631,11 +653,75 @@ class elemental_analysis:
         print(f"X:{min_optimal_solvent_ratios}")
 
         return (
-            max_percentage_values,
-            min_percentage_values,
             max_optimal_solvent_ratios,
             min_optimal_solvent_ratios,
         )
+
+    def evaluate_elemental_analysis(
+        self, max_optimal_solvent_ratios, min_optimal_solvent_ratios
+    ):
+        # ここで、max_optimal_solvent_ratios と min_optimal_solvent_ratios を評価し、結果を表示するロジックを実装します。
+        # 例えば、最適な溶媒比率やその意味をユーザーに伝えることができます。
+        compound_element_masses = self.compound_element_mass_array
+        solvent_element_masses_matrix = self.solvent_element_mass_array
+        compound_mw_scalar = self.compound_molecular_weight
+        solvent_mw_vector = self.solvent_molecular_weight_array
+        observed_fractions = self.observed_element_fractions_array  # 実測値 (%)
+
+        for array in max_optimal_solvent_ratios:
+            print(f"Current array in max_optimal_solvent_ratios: {array}")
+            if np.all(np.isnan(array)):  # array の全要素が nan かどうかをチェック
+                print(f"Skipping calculation for array with all NaNs: {array}")
+                continue  # すべて nan ならこの array での計算をスキップ
+            istrue = abs(
+                observed_fractions
+                - 100
+                * (
+                    (compound_element_masses + solvent_element_masses_matrix @ array)
+                    / (compound_mw_scalar + solvent_mw_vector @ array)
+                )
+            ) >= np.array([0.3, 0.3, 0.3, 0.3])
+            if not istrue.any():
+                print("アウンカモデス!")
+                print(
+                    100
+                    * (
+                        (
+                            compound_element_masses
+                            + solvent_element_masses_matrix @ array
+                        )
+                        / (compound_mw_scalar + solvent_mw_vector @ array)
+                    )
+                )
+                return True
+        for array in min_optimal_solvent_ratios:
+            print(f"Current array in min_optimal_solvent_ratios: {array}")
+            if np.all(np.isnan(array)):  # array の全要素が nan かどうかをチェック
+                print(f"Skipping calculation for array with all NaNs: {array}")
+                continue  # すべて nan ならこの array での計算をスキップ
+            istrue = abs(
+                observed_fractions
+                - 100
+                * (
+                    (compound_element_masses + solvent_element_masses_matrix @ array)
+                    / (compound_mw_scalar + solvent_mw_vector @ array)
+                )
+            ) >= np.array([0.3, 0.3, 0.3, 0.3])
+            if not istrue.any():
+                print("アウンカモデス!")
+                print(
+                    100
+                    * (
+                        (
+                            compound_element_masses
+                            + solvent_element_masses_matrix @ array
+                        )
+                        / (compound_mw_scalar + solvent_mw_vector @ array)
+                    )
+                )
+                return True
+        print("アワンデス!")
+        return False
 
 
 if __name__ == "__main__":
