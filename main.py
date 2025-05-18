@@ -366,9 +366,14 @@ class elemental_analysis:
     def finish_analysis_process(self, is_valid):
         """分析プロセスの終了処理"""
         if is_valid:
-            self.analysis_result_var.set(
-                f"溶媒分子10モル以内で解があります！\n 最適化値: {self.optimized_value}"
-            )
+            if self.optimized_value is not None:
+                formatted_value_str = ", ".join(
+                    f"{elem}:{item:.2f}"
+                    for (elem, item) in zip(["C", "H", "N", "S"], self.optimized_value)
+                )
+                self.analysis_result_var.set(
+                    f"溶媒分子10モル以内で解があります！\n 最適化値:\n{formatted_value_str}\n"
+                )
         else:
             self.analysis_result_var.set("残念 アワンデス！")
 
