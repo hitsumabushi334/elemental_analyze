@@ -53,7 +53,7 @@ class elemental_analysis:
             []
         )  # composition_atom_mass から変更
         self.observed_element_fractions_array = np.array([])
-
+        self.optimized_value = None
         # UIの作成
         compound_formula_frame = ttk.Frame(self.root, padding=(10, 15))
         compound_formula_frame.pack(fill=tk.X)
@@ -214,6 +214,7 @@ class elemental_analysis:
             font=("TkDefaultFont", 14),
             anchor=tk.W,
             textvariable=self.analysis_result_var,  # textvariable を設定
+            wraplength=350,  # この行を追加
         )
         self.analysis_result_content_label.pack(fill=tk.BOTH, expand=True)
 
@@ -312,43 +313,93 @@ class elemental_analysis:
             ("Ethyl acetate", False),
         ]
         self.populate_solvent_listbox()  # 溶媒リストを再描画
+        self.optimized_value = None  # 最適化値をリセット
 
     def run_analysis_calculations(self):  # perform_analysis から変更
-        parsed_compound_elements_dict = (
-            self.parse_compound_formula()
-        )  # extract_atom から変更
-        if self.validate_elements_in_formula(
-            parsed_compound_elements_dict
-        ):  # check_formula から変更
-            self.analysis_result_var.set(
-                "エラー: 利用できない元素が組成式に含まれています。"
-            )  # textvariable を使用
-            self.enable_ui_elements()  # UIを有効に戻す
-            return
-        self.prepare_calculation_data(
-            parsed_compound_elements_dict
-        )  # calculate_parameters
-        max_optimal_solvent_ratios, min_optimal_solvent_ratios = (
-            self.execute_optimization_calculations()
-        )  # analyze から変更、一旦コメントアウト
-        is_valid = self.evaluate_elemental_analysis(
-            max_optimal_solvent_ratios, min_optimal_solvent_ratios
-        )
-        self.finish_analysis_process(is_valid)
+        try:
+            parsed_compound_elements_dict = (
+                self.parse_compound_formula()
+            )  # extract_atom から変更
+            if parsed_compound_elements_dict is None:  # パース失敗時
+                # parse_compound_formula内でUI更新とenable_ui_elementsが呼ばれる想定
+                return
+
+            if self.validate_elements_in_formula(
+                parsed_compound_elements_dict
+            ):  # check_formula から変更
+                self.root.after(
+                    0,
+                    lambda: self.analysis_result_var.set(
+                        "エラー: 利用できない元素が組成式に含まれています。"
+                    ),
+                )  # textvariable を使用
+                self.root.after(0, self.enable_ui_elements)  # UIを有効に戻す
+                return
+            self.prepare_calculation_data(
+                parsed_compound_elements_dict
+            )  # calculate_parameters
+
+            # execute_optimization_calculations の返り値の修正を考慮
+            result = self.execute_optimization_calculations()
+            if (
+                result is None
+            ):  # execute_optimization_calculationsがNoneを返す場合(例: 溶媒未選択)
+                # execute_optimization_calculations内でUI更新とenable_ui_elementsが呼ばれる想定
+                return
+            max_optimal_solvent_ratios, min_optimal_solvent_ratios = result
+
+            is_valid = self.evaluate_elemental_analysis(
+                max_optimal_solvent_ratios, min_optimal_solvent_ratios
+            )
+            self.root.after(0, lambda: self.finish_analysis_process(is_valid))
+        except Exception as e:
+            # 包括的なエラーハンドリング
+            print(f"分析処理中に予期せぬエラーが発生しました: {e}")
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "内部エラー", f"分析処理中にエラーが発生しました: {e}"
+                ),
+            )
+            self.root.after(0, self.enable_ui_elements)
 
     def finish_analysis_process(self, is_valid):
         """分析プロセスの終了処理"""
         if is_valid:
-            self.analysis_result_var.set("溶媒分子10モル以内で解があります！")
+            self.analysis_result_var.set(
+                f"溶媒分子10モル以内で解があります！\n 最適化値: {self.optimized_value}"
+            )
         else:
             self.analysis_result_var.set("残念 アワンデス！")
-        self.enable_ui_elements()
+
+        self.enable_ui_elements()  # この呼び出しはメインスレッドから行われるように run_analysis_calculations で制御
 
     def parse_compound_formula(self):  # extract_atom から変更
         formula_str = self.compound_formula_var.get()
-        parsed_elements = chemparse.parse_formula(formula_str)
-        print(f"パースされた組成式: {parsed_elements}")
-        return parsed_elements
+        try:
+            parsed_elements = chemparse.parse_formula(formula_str)
+            print(f"パースされた組成式: {parsed_elements}")
+            if not parsed_elements:  # chemparseが空の辞書を返す場合もエラーとする
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "入力エラー",
+                        "組成式を正しくパースできませんでした。入力形式を確認してください。",
+                    ),
+                )
+                self.root.after(0, self.enable_ui_elements)
+                return None
+            return parsed_elements
+        except Exception as e:  # chemparseが例外を投げる場合
+            print(f"組成式のパース中にエラー: {e}")
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "入力エラー", f"組成式のパースに失敗しました: {e}"
+                ),
+            )
+            self.root.after(0, self.enable_ui_elements)
+            return None
 
     def validate_elements_in_formula(
         self, parsed_elements_dict
@@ -547,9 +598,16 @@ class elemental_analysis:
 
         if num_solvents == 0:
             print("最適化エラー: 溶媒が選択されていません。")
-            self.analysis_result_var.set("最適化エラー: 溶媒が選択されていません。")
-            self.enable_ui_elements()
-            return None, None, None, None
+            # UI更新は呼び出し元や専用の関数で行うことを推奨
+            # ここで直接UIを更新すると、メインスレッド以外からの呼び出しになる可能性がある
+            self.root.after(
+                0,
+                lambda: self.analysis_result_var.set(
+                    "最適化エラー: 溶媒が選択されていません。"
+                ),
+            )
+            self.root.after(0, self.enable_ui_elements)
+            return None  # 呼び出し元でNoneを処理できるようにする
 
         compound_element_masses = self.compound_element_mass_array
         solvent_element_masses_matrix = self.solvent_element_mass_array
@@ -693,6 +751,10 @@ class elemental_analysis:
                         / (compound_mw_scalar + solvent_mw_vector @ array)
                     )
                 )
+                self.optimized_value = 100 * (
+                    (compound_element_masses + solvent_element_masses_matrix @ array)
+                    / (compound_mw_scalar + solvent_mw_vector @ array)
+                )
                 return True
         for array in min_optimal_solvent_ratios:
             print(f"Current array in min_optimal_solvent_ratios: {array}")
@@ -718,6 +780,10 @@ class elemental_analysis:
                         )
                         / (compound_mw_scalar + solvent_mw_vector @ array)
                     )
+                )
+                self.optimized_value = 100 * (
+                    (compound_element_masses + solvent_element_masses_matrix @ array)
+                    / (compound_mw_scalar + solvent_mw_vector @ array)
                 )
                 return True
         print("アワンデス!")
