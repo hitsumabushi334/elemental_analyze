@@ -243,11 +243,11 @@ class elemental_analysis:
             return
 
         try:
-            # 実測値の取得
-            observed_c = self.observed_c_var.get()
-            observed_h = self.observed_h_var.get()
-            observed_n = self.observed_n_var.get()
-            observed_s = self.observed_s_var.get()
+            # 実測値が数値かどうかの検証
+            self.observed_c_var.get()
+            self.observed_h_var.get()
+            self.observed_n_var.get()
+            self.observed_s_var.get()
         except tk.TclError:
             messagebox.showerror(
                 "入力エラー",
