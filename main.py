@@ -1,12 +1,7 @@
-from ast import arg
-from logging import root
-from math import e
-from multiprocessing import Value
 import tkinter as tk
-from unittest import result
 import cvxpy as cp
 import numpy as np
-from tkinter import W, X, ttk
+from tkinter import W, ttk
 from tkinter import messagebox  # messagebox をインポート
 import threading
 import chemparse
